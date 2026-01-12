@@ -1,61 +1,87 @@
-const express = require('express')
-const app = express()
-const { MongoClient, ServerApiVersion } = require('mongodb');
-require('dotenv').config()
-const bcrypt = require('bcrypt');
+const express = require("express");
+const app = express();
+const { MongoClient, ServerApiVersion } = require("mongodb");
+require("dotenv").config();
+const bcrypt = require("bcrypt");
+const jwt = require('jsonwebtoken');
 
-const uri = process.env.DB_URI
+const uri = process.env.DB_URI;
 
-const port = process.env.PORT
+const port = process.env.PORT;
 
-app.use(express.json())
+app.use(express.json());
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
-})
-app.get('/', (req, res) => {
-  res.send('Hello World!')
-})
+  },
+});
+app.get("/", (req, res) => {
+  res.send("Hello World!");
+});
 async function run() {
   try {
-   
     await client.connect();
 
-    const db = client.db('jwt-recap')
-    const usersCollections = db.collection('users')
+    const db = client.db("jwt-recap");
+    const usersCollections = db.collection("users");
 
-    app.post('/register',async(req,res)=>{
-        const {name,email,password} = req.body
+    app.post("/register", async (req, res) => {
+      const { name, email, password } = req.body;
 
-        const existingUser = await usersCollections.findOne({email})
-        if(existingUser){
-            return res.status(400).json({
-                message:"User Already Exist!"
-            })
+      const existingUser = await usersCollections.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({
+          message: "User Already Exist!",
+        });
+      }
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const result = await usersCollections.insertOne({
+        email,
+        name,
+        password: hashedPassword,
+      });
+      res.status(201).json({
+        message: "User Created Successfully",
+        result,
+      });
+    });
+    app.post("/login", async (req, res) => {
+      const { email, password } = req.body;
+      try {
+        const user = await usersCollections.findOne({ email });
+        const isMatchedPassword = await bcrypt.compare(password,user.password)
+        if(!isMatchedPassword){
+          res.status(400).json({
+            message:"invalid password"
+          })
         }
-        const hashedPassword = await bcrypt.hash(password,10)
-        const result = await usersCollections.insertOne({
-            email,
-            name,
-            password:hashedPassword
+        const token = jwt.sign({
+          email : user.email,
+          _id : user._id
+        },process.env.SECRET_KEY,{expiresIn:'1h'})
+
+        res.status(200).json({
+          message : 'Logged in successfull',
+          token
         })
-        res.status(201).json({
-            message : 'User Created Successfully',
-            result
-        })
-    })
-    
+      } catch (err) {
+        return res.status(400).json({
+          message: "Loggin failed",
+        });
+      }
+    });
+
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } finally {
-    
     // await client.close();
   }
 }
 run().catch(console.dir);
 app.listen(port, () => {
-  console.log(`server running on port : ${port}`)
-})
+  console.log(`server running on port : ${port}`);
+});
