@@ -1,9 +1,9 @@
 const express = require("express");
 const app = express();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 const bcrypt = require("bcrypt");
-const jwt = require('jsonwebtoken');
+const jwt = require("jsonwebtoken");
 
 const uri = process.env.DB_URI;
 
@@ -17,6 +17,26 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+const verifyToken = (req, res, next) => {
+  try {
+    const token = req.headers.authorization;
+    if (!token) {
+      return res.status(401).json({ message: "no token" });
+    }
+
+    const decodedData = jwt.verify(token, process.env.SECRET_KEY);
+    if (!decodedData) {
+      return res.status(400).json({ message: "Unvalid token" });
+    }
+
+    req.user = decodedData;
+    next();
+  } catch (err) {
+    return res.status(400).json({ message: "unauthorize user" });
+  }
+};
+
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
@@ -51,25 +71,42 @@ async function run() {
       const { email, password } = req.body;
       try {
         const user = await usersCollections.findOne({ email });
-        const isMatchedPassword = await bcrypt.compare(password,user.password)
-        if(!isMatchedPassword){
+        const isMatchedPassword = await bcrypt.compare(password, user.password);
+        if (!isMatchedPassword) {
           res.status(400).json({
-            message:"invalid password"
-          })
+            message: "invalid password",
+          });
         }
-        const token = jwt.sign({
-          email : user.email,
-          _id : user._id
-        },process.env.SECRET_KEY,{expiresIn:'1h'})
+        const token = jwt.sign(
+          {
+            email: user.email,
+            _id: user._id,
+          },
+          process.env.SECRET_KEY,
+          { expiresIn: "1h" }
+        );
 
         res.status(200).json({
-          message : 'Logged in successfull',
-          token
-        })
+          message: "Logged in successfull",
+          token,
+        });
       } catch (err) {
         return res.status(400).json({
           message: "Loggin failed",
         });
+      }
+    });
+
+    app.get("/me", verifyToken, async (req, res) => {
+      try {
+        const user = await usersCollections.findOne(
+          { _id: new ObjectId(req.user._id) },
+          { projection: { password: 0 } }
+        );
+
+        res.status(200).json(user);
+      } catch (err) {
+        return res.status(400).json({ message: "unauthorize user" });
       }
     });
 
